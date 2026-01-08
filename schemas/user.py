@@ -77,6 +77,7 @@ class UserRead(UserBase):
     class Config:
         from_attributes = True
         validate_by_name = True
+        populate_by_name = True
 
 
 class TopUserRead(BaseModel):
