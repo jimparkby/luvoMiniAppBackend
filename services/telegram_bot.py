@@ -54,4 +54,13 @@ async def send_match_notification(chat_id: int) -> None:
 
 
 async def start_bot() -> None:
+    # Устанавливаем Menu Button для открытия WebApp
+    from aiogram.types import MenuButtonWebApp
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(text="Открыть Luvo", web_app=WebAppInfo(url=BASE_URL))
+        )
+    except Exception as e:
+        print(f"Не удалось установить menu button: {e}")
+
     await dp.start_polling(bot)
