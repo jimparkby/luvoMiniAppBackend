@@ -53,8 +53,8 @@ async def get_feed(
     elif current_user.gender == "female":
         stmt = stmt.where(User.gender == "male")
 
-    # При random() сортировке offset не используется, т.к. FeedView уже фильтрует просмотренные
-    stmt = stmt.order_by(func.random()).limit(limit)
+    # Сортировка по дате создания (новые пользователи первыми)
+    stmt = stmt.order_by(User.created_at.desc()).limit(limit)
     result = await db.execute(stmt)
     users = result.scalars().all()
 
