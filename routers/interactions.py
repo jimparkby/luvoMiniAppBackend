@@ -33,6 +33,7 @@ async def ai_auto_match(
     """
     try:
         delay = random.randint(10, 30)
+        print(f"[AI Auto-Match] Запущен для AI#{ai_user_id} → User#{real_user_id}, задержка {delay}с")
         await asyncio.sleep(delay)
 
         async with AsyncSessionLocal() as db:
@@ -44,6 +45,7 @@ async def ai_auto_match(
                 )
             )
             if not check_like.scalar_one_or_none():
+                print(f"[AI Auto-Match] ОТМЕНА: User#{real_user_id} удалил лайк на AI#{ai_user_id}")
                 return
 
             # Проверяем, нет ли уже ответного лайка от AI
@@ -54,12 +56,14 @@ async def ai_auto_match(
                 )
             )
             if reverse_check.scalar_one_or_none():
+                print(f"[AI Auto-Match] ОТМЕНА: AI#{ai_user_id} уже лайкнул User#{real_user_id}")
                 return
 
             # Создаем ответный лайк от AI к пользователю
             ai_like = LikeModel(liker_id=ai_user_id, liked_id=real_user_id)
             db.add(ai_like)
             await db.commit()
+            print(f"[AI Auto-Match] ✓ AI#{ai_user_id} лайкнул User#{real_user_id}")
 
             # Создаем матч
             u1, u2 = sorted([ai_user_id, real_user_id])
@@ -73,14 +77,18 @@ async def ai_auto_match(
                 new_match = MatchModel(user1_id=u1, user2_id=u2)
                 db.add(new_match)
                 await db.commit()
+                print(f"[AI Auto-Match] ✓ Создан матч между AI#{ai_user_id} и User#{real_user_id}")
 
             # Отправляем уведомления о матче
             if real_user_telegram_id:
                 asyncio.create_task(send_match_notification(real_user_telegram_id))
             if ai_user_telegram_id:
                 asyncio.create_task(send_match_notification(ai_user_telegram_id))
+            print(f"[AI Auto-Match] ✓ ЗАВЕРШЕНО для AI#{ai_user_id} → User#{real_user_id}")
     except Exception as e:
-        print(f"AI Auto-Match error: {e}")
+        print(f"[AI Auto-Match] ❌ ОШИБКА для AI#{ai_user_id} → User#{real_user_id}: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 @router.post(
