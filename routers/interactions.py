@@ -31,53 +31,56 @@ async def ai_auto_match(
     Автоматический ответный лайк от AI-пользователя с задержкой 10-30 секунд.
     Создает матч и отправляет уведомление.
     """
-    delay = random.randint(10, 30)
-    await asyncio.sleep(delay)
+    try:
+        delay = random.randint(10, 30)
+        await asyncio.sleep(delay)
 
-    async with AsyncSessionLocal() as db:
-        # Проверяем, не удалил ли пользователь свой лайк за это время
-        check_like = await db.execute(
-            select(LikeModel).where(
-                LikeModel.liker_id == real_user_id,
-                LikeModel.liked_id == ai_user_id
+        async with AsyncSessionLocal() as db:
+            # Проверяем, не удалил ли пользователь свой лайк за это время
+            check_like = await db.execute(
+                select(LikeModel).where(
+                    LikeModel.liker_id == real_user_id,
+                    LikeModel.liked_id == ai_user_id
+                )
             )
-        )
-        if not check_like.scalar_one_or_none():
-            return
+            if not check_like.scalar_one_or_none():
+                return
 
-        # Проверяем, нет ли уже ответного лайка от AI
-        reverse_check = await db.execute(
-            select(LikeModel).where(
-                LikeModel.liker_id == ai_user_id,
-                LikeModel.liked_id == real_user_id
+            # Проверяем, нет ли уже ответного лайка от AI
+            reverse_check = await db.execute(
+                select(LikeModel).where(
+                    LikeModel.liker_id == ai_user_id,
+                    LikeModel.liked_id == real_user_id
+                )
             )
-        )
-        if reverse_check.scalar_one_or_none():
-            return
+            if reverse_check.scalar_one_or_none():
+                return
 
-        # Создаем ответный лайк от AI к пользователю
-        ai_like = LikeModel(liker_id=ai_user_id, liked_id=real_user_id)
-        db.add(ai_like)
-        await db.commit()
-
-        # Создаем матч
-        u1, u2 = sorted([ai_user_id, real_user_id])
-        match_exists = await db.execute(
-            select(func.count(MatchModel.id)).where(
-                MatchModel.user1_id == u1,
-                MatchModel.user2_id == u2
-            )
-        )
-        if match_exists.scalar_one() == 0:
-            new_match = MatchModel(user1_id=u1, user2_id=u2)
-            db.add(new_match)
+            # Создаем ответный лайк от AI к пользователю
+            ai_like = LikeModel(liker_id=ai_user_id, liked_id=real_user_id)
+            db.add(ai_like)
             await db.commit()
 
-        # Отправляем уведомления о матче
-        if real_user_telegram_id:
-            asyncio.create_task(send_match_notification(real_user_telegram_id))
-        if ai_user_telegram_id:
-            asyncio.create_task(send_match_notification(ai_user_telegram_id))
+            # Создаем матч
+            u1, u2 = sorted([ai_user_id, real_user_id])
+            match_exists = await db.execute(
+                select(func.count(MatchModel.id)).where(
+                    MatchModel.user1_id == u1,
+                    MatchModel.user2_id == u2
+                )
+            )
+            if match_exists.scalar_one() == 0:
+                new_match = MatchModel(user1_id=u1, user2_id=u2)
+                db.add(new_match)
+                await db.commit()
+
+            # Отправляем уведомления о матче
+            if real_user_telegram_id:
+                asyncio.create_task(send_match_notification(real_user_telegram_id))
+            if ai_user_telegram_id:
+                asyncio.create_task(send_match_notification(ai_user_telegram_id))
+    except Exception as e:
+        print(f"AI Auto-Match error: {e}")
 
 
 @router.post(
@@ -201,11 +204,18 @@ async def like_user(
         return LikeResponse(liked=True, matched=True, match_user=user_read)
 
     liked_user = await db.get(User, user_id)
-    if liked_user and liked_user.telegram_user_id:
+    if not liked_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    print(f"Лайк поставлен: user_id={user_id}, is_ai={getattr(liked_user, 'is_ai', 'NOT_FOUND')}")
+
+    if liked_user.telegram_user_id:
         asyncio.create_task(send_like_notification(liked_user.telegram_user_id))
 
     # AI Auto-Match: если пользователь лайкнул AI-анкету, AI автоматически ответит через 10-30 секунд
-    if liked_user and getattr(liked_user, 'is_ai', False):
+    is_ai = getattr(liked_user, 'is_ai', False)
+    if is_ai:
+        print(f"Запускаю AI Auto-Match для user_id={user_id}")
         asyncio.create_task(ai_auto_match(
             ai_user_id=user_id,
             real_user_id=current_user.id,
