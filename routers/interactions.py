@@ -1,11 +1,12 @@
 from typing import List
 import asyncio
+import random
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, or_
 
-from core.database import get_db
+from core.database import get_db, AsyncSessionLocal
 from core.security import get_current_user
 from models.feed_view import FeedView
 from models.user import User
@@ -18,6 +19,65 @@ from services.telegram_bot import send_like_notification, send_match_notificatio
 
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
+
+
+async def ai_auto_match(
+    ai_user_id: int,
+    real_user_id: int,
+    ai_user_telegram_id: int | None,
+    real_user_telegram_id: int | None
+):
+    """
+    Автоматический ответный лайк от AI-пользователя с задержкой 10-30 секунд.
+    Создает матч и отправляет уведомление.
+    """
+    delay = random.randint(10, 30)
+    await asyncio.sleep(delay)
+
+    async with AsyncSessionLocal() as db:
+        # Проверяем, не удалил ли пользователь свой лайк за это время
+        check_like = await db.execute(
+            select(LikeModel).where(
+                LikeModel.liker_id == real_user_id,
+                LikeModel.liked_id == ai_user_id
+            )
+        )
+        if not check_like.scalar_one_or_none():
+            return
+
+        # Проверяем, нет ли уже ответного лайка от AI
+        reverse_check = await db.execute(
+            select(LikeModel).where(
+                LikeModel.liker_id == ai_user_id,
+                LikeModel.liked_id == real_user_id
+            )
+        )
+        if reverse_check.scalar_one_or_none():
+            return
+
+        # Создаем ответный лайк от AI к пользователю
+        ai_like = LikeModel(liker_id=ai_user_id, liked_id=real_user_id)
+        db.add(ai_like)
+        await db.commit()
+
+        # Создаем матч
+        u1, u2 = sorted([ai_user_id, real_user_id])
+        match_exists = await db.execute(
+            select(func.count(MatchModel.id)).where(
+                MatchModel.user1_id == u1,
+                MatchModel.user2_id == u2
+            )
+        )
+        if match_exists.scalar_one() == 0:
+            new_match = MatchModel(user1_id=u1, user2_id=u2)
+            db.add(new_match)
+            await db.commit()
+
+        # Отправляем уведомления о матче
+        if real_user_telegram_id:
+            asyncio.create_task(send_match_notification(real_user_telegram_id))
+        if ai_user_telegram_id:
+            asyncio.create_task(send_match_notification(ai_user_telegram_id))
 
 
 @router.post(
@@ -143,6 +203,15 @@ async def like_user(
     liked_user = await db.get(User, user_id)
     if liked_user and liked_user.telegram_user_id:
         asyncio.create_task(send_like_notification(liked_user.telegram_user_id))
+
+    # AI Auto-Match: если пользователь лайкнул AI-анкету, AI автоматически ответит через 10-30 секунд
+    if liked_user and liked_user.is_ai:
+        asyncio.create_task(ai_auto_match(
+            ai_user_id=user_id,
+            real_user_id=current_user.id,
+            ai_user_telegram_id=liked_user.telegram_user_id,
+            real_user_telegram_id=current_user.telegram_user_id
+        ))
 
     return LikeResponse(liked=True, matched=False, match_user=None)
 
