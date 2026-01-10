@@ -205,7 +205,7 @@ async def like_user(
         asyncio.create_task(send_like_notification(liked_user.telegram_user_id))
 
     # AI Auto-Match: если пользователь лайкнул AI-анкету, AI автоматически ответит через 10-30 секунд
-    if liked_user and liked_user.is_ai:
+    if liked_user and getattr(liked_user, 'is_ai', False):
         asyncio.create_task(ai_auto_match(
             ai_user_id=user_id,
             real_user_id=current_user.id,
@@ -314,14 +314,18 @@ async def top_liked_users(
     res = await db.execute(
         select(User, func.count(LikeModel.id).label("likes_count"))
         .join(LikeModel, LikeModel.liked_id == User.id)
-        .where(User.is_ai == False)
         .group_by(User.id)
         .order_by(desc("likes_count"))
-        .limit(20)
+        .limit(50)  # Берем больше, чтобы после фильтрации осталось достаточно
     )
     rows = res.all()
     output: List[TopUserRead] = []
     for user, likes_count in rows:
+        # Исключаем AI-пользователей (если поле существует)
+        if getattr(user, 'is_ai', False):
+            continue
+        if len(output) >= 20:  # Ограничиваем топ-20
+            break
         urls = await build_photo_urls(user.id, db)
         output.append(TopUserRead(
             user_id=user.id,
