@@ -245,6 +245,7 @@ async def top_liked_users(
     res = await db.execute(
         select(User, func.count(LikeModel.id).label("likes_count"))
         .join(LikeModel, LikeModel.liked_id == User.id)
+        .where(User.is_ai == False)
         .group_by(User.id)
         .order_by(desc("likes_count"))
         .limit(20)

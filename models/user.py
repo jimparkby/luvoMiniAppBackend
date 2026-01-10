@@ -13,6 +13,7 @@ class User(Base):
     telegram_user_id = Column(BigInteger, unique=True, nullable=False)
     is_premium = Column(Boolean, default=False, nullable=False)
     premium_expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_ai = Column(Boolean, default=False, nullable=False)
 
     birthdate = Column(Date, nullable=True)
     first_name = Column(String, nullable=True)
