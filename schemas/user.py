@@ -73,6 +73,7 @@ class UserRead(UserBase):
     is_premium: Optional[bool] = Field(..., description="Признак премиума")
     premium_expires_at: Optional[datetime] = Field(None, description="Дата окончания подписки")
     created_at: datetime = Field(..., description="Дата и время создания аккаунта")
+    is_liked: Optional[bool] = Field(False, description="Лайкнул ли текущий пользователь эту анкету")
 
     class Config:
         from_attributes = True

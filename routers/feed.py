@@ -26,16 +26,20 @@ async def get_feed(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> List[UserRead]:
-    # Формируем подзапросы для исключения: лайкнутых, заматченных
-    sub_liked = select(LikeModel.liked_id).where(LikeModel.liker_id == current_user.id)
+    # Формируем подзапросы для исключения заматченных (лайкнутых больше не исключаем)
     sub_matched1 = select(MatchModel.user1_id).where(MatchModel.user2_id == current_user.id)
     sub_matched2 = select(MatchModel.user2_id).where(MatchModel.user1_id == current_user.id)
     stmt = select(User).where(
         User.id != current_user.id,
-        not_(User.id.in_(sub_liked)),
         not_(User.id.in_(sub_matched1)),
         not_(User.id.in_(sub_matched2)),
     )
+
+    # Получаем список ID пользователей, которых лайкнул текущий пользователь
+    liked_ids_result = await db.execute(
+        select(LikeModel.liked_id).where(LikeModel.liker_id == current_user.id)
+    )
+    liked_ids = set(row[0] for row in liked_ids_result.all())
 
     if current_user.gender == "male":
         stmt = stmt.where(User.gender == "female")
@@ -64,5 +68,6 @@ async def get_feed(
             premium_expires_at=user.premium_expires_at,
             created_at=user.created_at,
             photos=photos,
+            is_liked=user.id in liked_ids,
         ))
     return feed
