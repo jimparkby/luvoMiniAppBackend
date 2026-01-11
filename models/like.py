@@ -1,5 +1,5 @@
 # backend/models/like.py
-from sqlalchemy import Column, Integer, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, DateTime, ForeignKey, Boolean, UniqueConstraint
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 
@@ -19,6 +19,11 @@ class Like(Base):
 
     liker = relationship("User", foreign_keys=[liker_id], backref="likes_given")
     liked = relationship("User", foreign_keys=[liked_id], backref="likes_received")
+
+    # Уникальное ограничение: один пользователь не может дважды лайкнуть другого
+    __table_args__ = (
+        UniqueConstraint('liker_id', 'liked_id', name='unique_like_pair'),
+    )
 
     def __repr__(self):
         return f"<Like {self.liker_id}→{self.liked_id}>"

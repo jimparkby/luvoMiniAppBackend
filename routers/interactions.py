@@ -20,6 +20,9 @@ from services.telegram_bot import send_like_notification, send_match_notificatio
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
 
+# Множество для отслеживания активных задач AI Auto-Match (ai_user_id, real_user_id)
+_active_ai_matches: set = set()
+
 
 async def ai_auto_match(
     ai_user_id: int,
@@ -31,6 +34,15 @@ async def ai_auto_match(
     Автоматический ответный лайк от AI-пользователя с задержкой 10-30 секунд.
     Создает матч и отправляет уведомление.
     """
+    match_key = (ai_user_id, real_user_id)
+
+    # Проверяем, не запущена ли уже задача для этой пары
+    if match_key in _active_ai_matches:
+        print(f"[AI Auto-Match] ПРОПУСК: задача для AI#{ai_user_id} → User#{real_user_id} уже активна")
+        return
+
+    _active_ai_matches.add(match_key)
+
     try:
         delay = random.randint(10, 30)
         print(f"[AI Auto-Match] Запущен для AI#{ai_user_id} → User#{real_user_id}, задержка {delay}с")
@@ -38,13 +50,14 @@ async def ai_auto_match(
 
         async with AsyncSessionLocal() as db:
             # Проверяем, не удалил ли пользователь свой лайк за это время
+            # Используем first() вместо scalar_one_or_none() для защиты от дубликатов
             check_like = await db.execute(
                 select(LikeModel).where(
                     LikeModel.liker_id == real_user_id,
                     LikeModel.liked_id == ai_user_id
                 )
             )
-            if not check_like.scalar_one_or_none():
+            if not check_like.first():
                 print(f"[AI Auto-Match] ОТМЕНА: User#{real_user_id} удалил лайк на AI#{ai_user_id}")
                 return
 
@@ -55,7 +68,7 @@ async def ai_auto_match(
                     LikeModel.liked_id == real_user_id
                 )
             )
-            if reverse_check.scalar_one_or_none():
+            if reverse_check.first():
                 print(f"[AI Auto-Match] ОТМЕНА: AI#{ai_user_id} уже лайкнул User#{real_user_id}")
                 return
 
@@ -89,6 +102,10 @@ async def ai_auto_match(
         print(f"[AI Auto-Match] ❌ ОШИБКА для AI#{ai_user_id} → User#{real_user_id}: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        # Убираем задачу из активных
+        _active_ai_matches.discard(match_key)
+        print(f"[AI Auto-Match] Очищена задача для AI#{ai_user_id} → User#{real_user_id}")
 
 
 @router.post(
@@ -134,12 +151,14 @@ async def like_user(
         )
     )
 
+    # Используем scalars().all() чтобы получить все дубликаты (если есть)
+    existing_likes = res.scalars().all()
+    print(f"Найдено лайков: {len(existing_likes)}")
 
-    like_obj = res.scalar_one_or_none()
-    print(like_obj)
-
-    if like_obj:
-        await db.delete(like_obj)
+    if existing_likes:
+        # Удаляем все существующие лайки (в т.ч. дубликаты)
+        for like in existing_likes:
+            await db.delete(like)
         await db.commit()
 
         u1, u2 = sorted([current_user.id, user_id])
@@ -150,17 +169,24 @@ async def like_user(
                 MatchModel.user2_id == u2,
             )
         )
-        match_obj = match_res.scalar_one_or_none()
+        match_obj = match_res.first()
         if match_obj:
-            await db.delete(match_obj)
+            await db.delete(match_obj[0])
             await db.commit()
 
         return LikeResponse(liked=False, matched=False, match_user=None)
 
     new_like = LikeModel(liker_id=current_user.id, liked_id=user_id)
     db.add(new_like)
-    await db.commit()
-    await db.refresh(new_like)
+    try:
+        await db.commit()
+        await db.refresh(new_like)
+    except Exception as e:
+        # Если произошла ошибка constraint (дубликат создался race condition)
+        await db.rollback()
+        print(f"Ошибка при создании лайка (возможно дубликат): {e}")
+        # Просто возвращаем успех, лайк уже существует
+        return LikeResponse(liked=True, matched=False, match_user=None)
 
     mutual = await db.execute(
         select(func.count(LikeModel.id))
