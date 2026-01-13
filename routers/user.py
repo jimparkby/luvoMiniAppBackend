@@ -71,9 +71,10 @@ async def create_or_login_user(
         await db.commit()
         await db.refresh(user)
 
-        # Загружаем главное фото
+        # Загружаем главное фото асинхронно
         try:
-            s3_key = upload_file_to_s3(
+            s3_key = await run_in_threadpool(
+                upload_file_to_s3,
                 file.file,
                 file.filename,
                 settings.AWS_S3_BUCKET_NAME
