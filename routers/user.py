@@ -116,7 +116,8 @@ async def create_or_login_user(
         access_token=access_token,
         token_type="bearer",
         has_profile=has_profile,
-        expires_in_ms=expires_ms
+        expires_in_ms=expires_ms,
+        user_id=user.id
     )
 
 

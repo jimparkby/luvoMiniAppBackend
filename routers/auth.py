@@ -64,7 +64,8 @@ async def login(
         access_token=access_token,
         token_type="bearer",
         has_profile=has_profile,
-        expires_in_ms=expires_ms
+        expires_in_ms=expires_ms,
+        user_id=user.id
     )
 
 
@@ -100,4 +101,5 @@ async def get_jwt_by_username(
         token_type="bearer",
         has_profile=has_profile,
         expires_in_ms=expires_ms,
+        user_id=user.id
     )
