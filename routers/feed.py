@@ -1,7 +1,7 @@
 from typing import List
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, not_, and_
+from sqlalchemy import select, not_, and_, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -47,18 +47,19 @@ async def get_feed(
     elif current_user.gender == "female":
         stmt = stmt.where(User.gender == "male")
 
-    # Фильтрация по возрасту: ±5 лет от возраста текущего пользователя
+    # Сортировка по возрасту: сначала ±5 лет, потом остальные
     if current_user.birthdate:
         min_birthdate = current_user.birthdate - relativedelta(years=5)  # Старше на 5 лет
         max_birthdate = current_user.birthdate + relativedelta(years=5)  # Младше на 5 лет
-        stmt = stmt.where(
-            and_(
-                User.birthdate >= min_birthdate,
-                User.birthdate <= max_birthdate
-            )
+        age_priority = case(
+            (and_(User.birthdate >= min_birthdate, User.birthdate <= max_birthdate), 0),
+            else_=1
         )
+        stmt = stmt.order_by(age_priority, User.created_at.desc())
+    else:
+        stmt = stmt.order_by(User.created_at.desc())
 
-    stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
+    stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
     users = result.scalars().all()
 
