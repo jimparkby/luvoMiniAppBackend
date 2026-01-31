@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
@@ -20,6 +21,7 @@ from schemas.user import UserRead, UserCreate, UserUpdate
 from schemas.location import LocationUpdate
 from utils.s3 import upload_file_to_s3, build_photo_urls
 from utils.locations import validate_location
+from services.telegram_bot import notify_admin_about_new_user
 
 router = APIRouter(prefix="/users", tags=["users"])  #(prefix="/users", tags=["users"])
 
@@ -93,6 +95,7 @@ async def create_or_login_user(
         photo = Photo(user_id=user.id, s3_key=s3_key, is_general=True)
         db.add(photo)
         await db.commit()
+        asyncio.create_task(notify_admin_about_new_user(user.id))
     else:
         # 3.2. Если есть — просто логиним, игнорируем form-data
         pass  # никаких дополнительных действий не требуется
