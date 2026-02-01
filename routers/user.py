@@ -1,7 +1,6 @@
-import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.params import Path
 from jose import jwt
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +32,7 @@ router = APIRouter(prefix="/users", tags=["users"])  #(prefix="/users", tags=["u
     summary="Создать аккаунт или получить JWT"
 )
 async def create_or_login_user(
+    background_tasks: BackgroundTasks,
     init_data: str = Form(..., description="init_data от Telegram WebApp"),
     first_name: str = Form(..., description="Имя, которое будет отображаться в профиле"),
     birthdate: date = Form(..., description="Дата рождения (YYYY-MM-DD)"),
@@ -95,7 +95,7 @@ async def create_or_login_user(
         photo = Photo(user_id=user.id, s3_key=s3_key, is_general=True)
         db.add(photo)
         await db.commit()
-        asyncio.create_task(notify_admin_about_new_user(user.id))
+        background_tasks.add_task(notify_admin_about_new_user, user.id)
     else:
         # 3.2. Если есть — просто логиним, игнорируем form-data
         pass  # никаких дополнительных действий не требуется
