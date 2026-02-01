@@ -82,6 +82,14 @@ class UserRead(UserBase):
         populate_by_name = True
 
 
+class FeedResponse(BaseModel):
+    users: List[UserRead]
+    recommended_count: int = Field(..., description="Общее количество рекомендованных пользователей (±5 лет)")
+
+    class Config:
+        from_attributes = True
+
+
 class TopUserRead(BaseModel):
     user_id: int = Field(..., alias="user_id")
     first_name: Optional[str]

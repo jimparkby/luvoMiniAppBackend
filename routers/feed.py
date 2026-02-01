@@ -1,7 +1,7 @@
 from typing import List
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, not_, and_, case
+from sqlalchemy import select, not_, and_, case, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.database import get_db
@@ -10,7 +10,7 @@ from models.user import User
 from models.like import Like as LikeModel
 from models.match import Match as MatchModel
 from models.feed_view import FeedView
-from schemas.user import UserRead
+from schemas.user import UserRead, FeedResponse
 from utils.s3 import build_photo_urls
 
 router = APIRouter(prefix="/feed", tags=["feed"])
@@ -18,7 +18,7 @@ router = APIRouter(prefix="/feed", tags=["feed"])
 
 @router.get(
     "/",
-    response_model=List[UserRead],
+    response_model=FeedResponse,
     summary="Получить ленту кандидатов"
 )
 async def get_feed(
@@ -26,15 +26,36 @@ async def get_feed(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-) -> List[UserRead]:
+) -> FeedResponse:
     # Формируем подзапросы для исключения заматченных (лайкнутых больше не исключаем)
     sub_matched1 = select(MatchModel.user1_id).where(MatchModel.user2_id == current_user.id)
     sub_matched2 = select(MatchModel.user2_id).where(MatchModel.user1_id == current_user.id)
-    stmt = select(User).where(
+
+    # Базовые фильтры (общие для основного запроса и подсчёта)
+    base_filters = [
         User.id != current_user.id,
         not_(User.id.in_(sub_matched1)),
         not_(User.id.in_(sub_matched2)),
-    )
+    ]
+
+    if current_user.gender == "male":
+        base_filters.append(User.gender == "female")
+    elif current_user.gender == "female":
+        base_filters.append(User.gender == "male")
+
+    # Подсчёт рекомендованных пользователей (±5 лет)
+    recommended_count = 0
+    if current_user.birthdate:
+        min_birthdate = current_user.birthdate - relativedelta(years=5)
+        max_birthdate = current_user.birthdate + relativedelta(years=5)
+
+        count_stmt = select(func.count()).select_from(User).where(
+            *base_filters,
+            User.birthdate >= min_birthdate,
+            User.birthdate <= max_birthdate,
+        )
+        count_result = await db.execute(count_stmt)
+        recommended_count = count_result.scalar() or 0
 
     # Получаем список ID пользователей, которых лайкнул текущий пользователь
     liked_ids_result = await db.execute(
@@ -42,15 +63,10 @@ async def get_feed(
     )
     liked_ids = set(row[0] for row in liked_ids_result.all())
 
-    if current_user.gender == "male":
-        stmt = stmt.where(User.gender == "female")
-    elif current_user.gender == "female":
-        stmt = stmt.where(User.gender == "male")
+    stmt = select(User).where(*base_filters)
 
     # Сортировка по возрасту: сначала ±5 лет, потом остальные
     if current_user.birthdate:
-        min_birthdate = current_user.birthdate - relativedelta(years=5)  # Старше на 5 лет
-        max_birthdate = current_user.birthdate + relativedelta(years=5)  # Младше на 5 лет
         age_priority = case(
             (and_(User.birthdate >= min_birthdate, User.birthdate <= max_birthdate), 0),
             else_=1
@@ -83,4 +99,4 @@ async def get_feed(
             photos=photos,
             is_liked=user.id in liked_ids,
         ))
-    return feed
+    return FeedResponse(users=feed, recommended_count=recommended_count)
