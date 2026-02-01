@@ -1,4 +1,5 @@
 import json
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, BackgroundTasks
 from fastapi.params import Path
@@ -20,6 +21,7 @@ from schemas.user import UserRead, UserCreate, UserUpdate
 from schemas.location import LocationUpdate
 from utils.s3 import upload_file_to_s3, build_photo_urls
 from utils.locations import validate_location
+from utils.face_detection import check_face_present
 from services.telegram_bot import notify_admin_about_new_user
 
 router = APIRouter(prefix="/users", tags=["users"])  #(prefix="/users", tags=["users"])
@@ -60,6 +62,13 @@ async def create_or_login_user(
 
     if not user:
         # 3.1. Если нет — создаём новый User и сразу заполняем профиль
+
+        # Проверяем наличие лица на фото
+        file_bytes = await file.read()
+        has_face = await run_in_threadpool(check_face_present, file_bytes)
+        if not has_face:
+            raise HTTPException(status_code=400, detail="На фото не обнаружено лицо")
+
         user = User(
             telegram_user_id=telegram_user_id,
             telegram_username=telegram_username,
@@ -73,11 +82,11 @@ async def create_or_login_user(
         await db.commit()
         await db.refresh(user)
 
-        # Загружаем главное фото асинхронно
+        # Загружаем главное фото
         try:
             s3_key = await run_in_threadpool(
                 upload_file_to_s3,
-                file.file,
+                BytesIO(file_bytes),
                 file.filename,
                 settings.AWS_S3_BUCKET_NAME
             )
@@ -218,18 +227,27 @@ async def update_my_profile(
     await db.refresh(current_user)
 
     if photos is not None:
+        # Читаем все файлы и проверяем наличие лица на каждом перед загрузкой
+        photo_data = []
+        for upload in photos:
+            file_bytes = await upload.read()
+            has_face = await run_in_threadpool(check_face_present, file_bytes)
+            if not has_face:
+                raise HTTPException(status_code=400, detail="На фото не обнаружено лицо")
+            photo_data.append((file_bytes, upload.filename))
+
         await db.execute(
             update(Photo)
             .where(Photo.user_id == current_user.id, Photo.is_general.is_(True))
             .values(is_general=False)
         )
         await db.commit()
-        for upload in photos:
+        for file_bytes, filename in photo_data:
             try:
                 s3_key = await run_in_threadpool(
                     upload_file_to_s3,
-                    upload.file,
-                    upload.filename,
+                    BytesIO(file_bytes),
+                    filename,
                     settings.AWS_S3_BUCKET_NAME
                 )
             except ValueError as ve:

@@ -1,3 +1,5 @@
+from io import BytesIO
+
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Path
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete, func
@@ -10,6 +12,7 @@ from core.security import get_current_user
 from models.photo import Photo
 from schemas.photo import PhotoRead
 from utils.s3 import upload_file_to_s3, delete_file_from_s3
+from utils.face_detection import check_face_present
 
 router = APIRouter(prefix="/photos", tags=["photos  "])
 
@@ -37,11 +40,17 @@ async def upload_photo(
     if total >= MAX_PHOTOS:
         raise HTTPException(status_code=400, detail=f"Нельзя иметь более {MAX_PHOTOS} фото")
 
+    # Читаем файл и проверяем наличие лица
+    file_bytes = await photo.read()
+    has_face = await run_in_threadpool(check_face_present, file_bytes)
+    if not has_face:
+        raise HTTPException(status_code=400, detail="На фото не обнаружено лицо")
+
     # Загружаем файл в S3
     try:
         s3_key = await run_in_threadpool(
             upload_file_to_s3,
-            photo.file,
+            BytesIO(file_bytes),
             photo.filename,
             settings.AWS_S3_BUCKET_NAME,
         )
