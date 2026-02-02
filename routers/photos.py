@@ -28,10 +28,7 @@ async def verify_face(
     photo: UploadFile = File(...),
 ):
     file_bytes = await photo.read()
-    try:
-        has_face = await run_in_threadpool(check_face_present, file_bytes, fail_open=False)
-    except RuntimeError:
-        raise HTTPException(status_code=502, detail="Не удалось проверить фото, попробуйте ещё раз")
+    has_face = await run_in_threadpool(check_face_present, file_bytes)
     return {"has_face": has_face}
 
 
