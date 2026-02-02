@@ -7,10 +7,12 @@ from core.config import settings
 logger = logging.getLogger(__name__)
 
 
-def check_face_present(file_bytes: bytes) -> bool:
+def check_face_present(file_bytes: bytes, *, fail_open: bool = True) -> bool:
     """
     Sends image bytes to SightEngine and returns True if at least one face is detected.
-    Fails open (returns True) on API errors so uploads aren't blocked when SightEngine is down.
+
+    fail_open=True  (default) — returns True on API errors so uploads aren't blocked.
+    fail_open=False — raises RuntimeError on API errors so the caller can show a retry message.
     """
     try:
         response = requests.post(
@@ -27,11 +29,17 @@ def check_face_present(file_bytes: bytes) -> bool:
 
         if result.get("status") != "success":
             logger.warning("SightEngine returned non-success status: %s", result)
-            return True
+            if fail_open:
+                return True
+            raise RuntimeError("SightEngine returned non-success status")
 
         faces = result.get("faces", [])
         return len(faces) >= 1
 
+    except RuntimeError:
+        raise
     except Exception:
-        logger.warning("SightEngine API error, failing open", exc_info=True)
-        return True
+        logger.warning("SightEngine API error", exc_info=True)
+        if fail_open:
+            return True
+        raise RuntimeError("SightEngine API error")

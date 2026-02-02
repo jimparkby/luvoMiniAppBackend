@@ -21,6 +21,7 @@ from schemas.user import UserRead, UserCreate, UserUpdate
 from schemas.location import LocationUpdate
 from utils.s3 import upload_file_to_s3, build_photo_urls
 from utils.locations import validate_location
+from utils.face_detection import check_face_present
 from services.telegram_bot import notify_admin_about_new_user
 
 router = APIRouter(prefix="/users", tags=["users"])  #(prefix="/users", tags=["users"])
@@ -62,6 +63,9 @@ async def create_or_login_user(
     if not user:
         # 3.1. Если нет — создаём новый User и сразу заполняем профиль
         file_bytes = await file.read()
+        has_face = await run_in_threadpool(check_face_present, file_bytes)
+        if not has_face:
+            raise HTTPException(status_code=400, detail="На фото не обнаружено лицо")
 
         user = User(
             telegram_user_id=telegram_user_id,
