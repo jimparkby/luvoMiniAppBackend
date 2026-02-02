@@ -19,6 +19,19 @@ router = APIRouter(prefix="/photos", tags=["photos  "])
 # Максимальное число фото на пользователя
 MAX_PHOTOS = getattr(settings, "MAX_PHOTOS", 6)
 
+
+@router.post(
+    "/verify-face",
+    summary="Проверить наличие лица на фото (без авторизации)",
+)
+async def verify_face(
+    photo: UploadFile = File(...),
+):
+    file_bytes = await photo.read()
+    has_face = await run_in_threadpool(check_face_present, file_bytes)
+    return {"has_face": has_face}
+
+
 @router.post(
     "/",
     response_model=PhotoRead,
@@ -40,11 +53,7 @@ async def upload_photo(
     if total >= MAX_PHOTOS:
         raise HTTPException(status_code=400, detail=f"Нельзя иметь более {MAX_PHOTOS} фото")
 
-    # Читаем файл и проверяем наличие лица
     file_bytes = await photo.read()
-    has_face = await run_in_threadpool(check_face_present, file_bytes)
-    if not has_face:
-        raise HTTPException(status_code=400, detail="На фото не обнаружено лицо")
 
     # Загружаем файл в S3
     try:
