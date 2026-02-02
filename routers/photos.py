@@ -12,24 +12,11 @@ from core.security import get_current_user
 from models.photo import Photo
 from schemas.photo import PhotoRead
 from utils.s3 import upload_file_to_s3, delete_file_from_s3
-from utils.face_detection import check_face_present
 
 router = APIRouter(prefix="/photos", tags=["photos  "])
 
 # Максимальное число фото на пользователя
 MAX_PHOTOS = getattr(settings, "MAX_PHOTOS", 6)
-
-
-@router.post(
-    "/verify-face",
-    summary="Проверить наличие лица на фото (без авторизации)",
-)
-async def verify_face(
-    photo: UploadFile = File(...),
-):
-    file_bytes = await photo.read()
-    has_face = await run_in_threadpool(check_face_present, file_bytes)
-    return {"has_face": has_face}
 
 
 @router.post(

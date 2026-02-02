@@ -22,9 +22,6 @@ class Settings(BaseSettings):
     PLACEHOLDER_NAME: str
     PLACEHOLDER_BIO: str
 
-    SIGHTENGINE_API_USER: str
-    SIGHTENGINE_API_SECRET: str
-
     IMPORT_FROM_S3_PASSWORD: Optional[str] = None
     SEED_DB: bool = False
     RESET_DB_ON_STARTUP: bool = False
