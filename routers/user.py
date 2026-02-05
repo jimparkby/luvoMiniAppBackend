@@ -21,6 +21,7 @@ from schemas.user import UserRead, UserCreate, UserUpdate
 from schemas.location import LocationUpdate
 from utils.s3 import upload_file_to_s3, build_photo_urls
 from utils.locations import validate_location
+from utils.banned_words import validate_username
 from services.telegram_bot import notify_admin_about_new_user
 
 router = APIRouter(prefix="/users", tags=["users"])  #(prefix="/users", tags=["users"])
@@ -53,6 +54,12 @@ async def create_or_login_user(
     telegram_username = user_data.get("username")
     if not telegram_user_id:
         raise HTTPException(status_code=400, detail="Invalid 'user' data in init_data")
+
+    # Валидация instagram_username
+    if instagram_username:
+        is_valid, error_message = validate_username(instagram_username)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_message)
 
     # 2. Ищем пользователя в БД
     stmt = select(User).where(User.telegram_user_id == telegram_user_id)
@@ -187,6 +194,12 @@ async def update_my_profile(
     country = _clean_value(country)
     city = _clean_value(city)
     district = _clean_value(district)
+
+    # Валидация instagram_username при обновлении
+    if instagram_username is not None:
+        is_valid, error_message = validate_username(instagram_username)
+        if not is_valid:
+            raise HTTPException(status_code=400, detail=error_message)
 
     if first_name is not None:
         current_user.first_name = first_name
