@@ -33,6 +33,7 @@ LIKES_LINK = f"{APP_BASE_LINK}/likes"
 FEED_LINK = f"{APP_BASE_LINK}/feed"
 CREATE_ACCOUNT_LINK = f"{APP_BASE_LINK}/onboarding"
 EDIT_PROFILE_LINK = f"{APP_BASE_LINK}/profile/edit"
+PRIVACY_POLICY_LINK = "https://docs.google.com/document/d/1p5VrSQgodyTmR3ZiQclLr95SU_YZdoCNz56LbaDs9vU/edit?tab=t.0"
 
 bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
 dp = Dispatcher()
@@ -87,6 +88,26 @@ def build_keyboard(url: str) -> InlineKeyboardMarkup:
 
 feed_keyboard = build_keyboard(FEED_LINK)
 likes_keyboard = build_keyboard(LIKES_LINK)
+
+start_keyboard = InlineKeyboardMarkup(
+    inline_keyboard=[
+        [
+            InlineKeyboardButton(
+                text="Открыть Luvo", web_app=WebAppInfo(url=FEED_LINK)
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="💎 Подписка", callback_data="subscription"
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="📄 Политика конфиденциальности", url=PRIVACY_POLICY_LINK
+            )
+        ],
+    ]
+)
 
 
 @dataclass
@@ -647,7 +668,12 @@ async def cmd_start(message: types.Message) -> None:
         "мы помогаем найти новые знакомства по твоим подпискам в Instagram. "
         "Чтобы начать знакомиться, запусти приложение! 💫"
     )
-    await message.answer(text, reply_markup=feed_keyboard)
+    await message.answer(text, reply_markup=start_keyboard)
+
+
+@dp.callback_query(F.data == "subscription")
+async def cb_subscription(callback: types.CallbackQuery) -> None:
+    await callback.answer("Раздел подписки скоро будет доступен!", show_alert=True)
 
 
 @dp.message(Command("rule"))
