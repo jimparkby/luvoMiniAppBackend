@@ -353,15 +353,23 @@ async def incoming_likes(
     summary="Топ пользователей по количеству лайков"
 )
 async def top_liked_users(
+    status: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ) -> List[TopUserRead]:
-    res = await db.execute(
+    # Базовый запрос
+    query = (
         select(User, func.count(LikeModel.id).label("likes_count"))
         .join(LikeModel, LikeModel.liked_id == User.id)
         .group_by(User.id)
-        .order_by(desc("likes_count"))
-        .limit(50)  # Берем больше, чтобы после фильтрации осталось достаточно
     )
+
+    # Фильтрация по статусу
+    if status:
+        query = query.where(User.status == status)
+
+    query = query.order_by(desc("likes_count")).limit(50)
+
+    res = await db.execute(query)
     rows = res.all()
     output: List[TopUserRead] = []
     for user, likes_count in rows:
@@ -379,6 +387,7 @@ async def top_liked_users(
             about=user.about,
             telegram_username=user.telegram_username,
             instagram_username=user.instagram_username,
+            status=user.status,
             photos=urls,
             created_at=user.created_at,
             likes_count=likes_count,

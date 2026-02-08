@@ -157,6 +157,7 @@ async def read_my_profile(
         district=current_user.district,
         telegram_username=current_user.telegram_username,
         instagram_username=current_user.instagram_username,
+        status=current_user.status,
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,
@@ -181,6 +182,7 @@ async def update_my_profile(
     district: Optional[str] = Form(None),
     latitude: Optional[float] = Form(None),
     longitude: Optional[float] = Form(None),
+    status: Optional[str] = Form(None),
     photos: Optional[List[UploadFile]] = File(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -200,6 +202,16 @@ async def update_my_profile(
         is_valid, error_message = validate_username(instagram_username)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)
+
+    # Валидация статуса
+    if status is not None:
+        valid_statuses = ['walking', 'evening', 'fashion', 'sport', 'chill', 'party', '']
+        if status and status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+            )
+        current_user.status = status
 
     if first_name is not None:
         current_user.first_name = first_name
@@ -275,6 +287,7 @@ async def update_my_profile(
         district=current_user.district,
         telegram_username=current_user.telegram_username,
         instagram_username=current_user.instagram_username,
+        status=current_user.status,
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,
@@ -310,6 +323,7 @@ async def read_user_profile(
         district=user.district,
         telegram_username=user.telegram_username,
         instagram_username=user.instagram_username,
+        status=user.status,
         photos=photos,
         is_premium=user.is_premium,
         created_at=user.created_at,
@@ -354,6 +368,7 @@ async def update_my_location(
         district=current_user.district,
         telegram_username=current_user.telegram_username,
         instagram_username=current_user.instagram_username,
+        status=current_user.status,
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,

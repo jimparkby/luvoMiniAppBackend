@@ -24,6 +24,7 @@ class UserCreate(UserBase):
     district: Optional[str] = Field(None, max_length=128, description="Район пользователя")
     telegram_username: Optional[str] = Field(None, max_length=64, description="Telegram username")
     instagram_username: Optional[str] = Field(None, max_length=64, description="Instagram username")
+    status: Optional[str] = Field(None, max_length=32, description="Статус: 'walking', 'evening', 'fashion', 'sport', 'chill', 'party'")
     is_premium: Optional[bool] = Field(False, description="Признак премиума")
     premium_expires_at: Optional[datetime] = Field(None, description="Дата окончания премиума")
 
@@ -44,6 +45,7 @@ class UserUpdate(BaseModel):
     district: Optional[str] = Field(None, max_length=128, description="Район пользователя")
     telegram_username: Optional[str] = Field(None, max_length=64, description="Telegram username")
     instagram_username: Optional[str] = Field(None, max_length=64, description="Instagram username")
+    status: Optional[str] = Field(None, max_length=32, description="Статус: 'walking', 'evening', 'fashion', 'sport', 'chill', 'party'")
     is_premium: Optional[bool] = Field(None, description="Признак премиума")
     premium_expires_at: Optional[datetime] = Field(None, description="Дата окончания премиума")
 
@@ -69,6 +71,7 @@ class UserRead(UserBase):
 
     telegram_username: Optional[str] = Field(None, description="Telegram username")
     instagram_username: Optional[str] = Field(None, description="Instagram username")
+    status: Optional[str] = Field(None, description="Статус пользователя")
 
     is_premium: Optional[bool] = Field(..., description="Признак премиума")
     premium_expires_at: Optional[datetime] = Field(None, description="Дата окончания подписки")
@@ -98,6 +101,7 @@ class TopUserRead(BaseModel):
     about: Optional[str]
     telegram_username: Optional[str]
     instagram_username: Optional[str]
+    status: Optional[str] = Field(None, description="Статус пользователя")
     photos: List[str]
     created_at: datetime
     likes_count: int

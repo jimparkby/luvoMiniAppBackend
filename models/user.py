@@ -26,6 +26,7 @@ class User(Base):
     country = Column(String(64), nullable=True)
     city = Column(String(64), nullable=True)
     district = Column(String(128), nullable=True)
+    status = Column(String(32), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
