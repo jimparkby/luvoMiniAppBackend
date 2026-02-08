@@ -15,7 +15,7 @@ from models.match import Match as MatchModel
 from schemas.like import LikeResponse
 from schemas.user import UserRead, TopUserRead
 from utils.s3 import build_photo_urls
-from services.telegram_bot import send_like_notification, send_match_notification, send_superlike_notification
+from services.telegram_bot import send_like_notification, send_match_notification
 
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
@@ -259,123 +259,6 @@ async def like_user(
 
     return LikeResponse(liked=True, matched=False, match_user=None)
 
-
-@router.post(
-    "/superlike/{user_id}",
-    response_model=LikeResponse,
-    summary="Суперлайк — лайк + уведомление в Telegram",
-)
-async def superlike_user(
-    user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-) -> LikeResponse:
-    if user_id == current_user.id:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя суперлайкать себя")
-
-    # Проверяем, существует ли уже лайк
-    res = await db.execute(
-        select(LikeModel).where(
-            LikeModel.liker_id == current_user.id,
-            LikeModel.liked_id == user_id,
-        )
-    )
-    existing_likes = res.scalars().all()
-
-    if existing_likes:
-        # Уже лайкнут — убираем лайк (toggle)
-        for like in existing_likes:
-            await db.delete(like)
-        await db.commit()
-
-        u1, u2 = sorted([current_user.id, user_id])
-        match_res = await db.execute(
-            select(MatchModel).where(
-                MatchModel.user1_id == u1,
-                MatchModel.user2_id == u2,
-            )
-        )
-        match_obj = match_res.first()
-        if match_obj:
-            await db.delete(match_obj[0])
-            await db.commit()
-
-        return LikeResponse(liked=False, matched=False, match_user=None)
-
-    # Создаём лайк
-    new_like = LikeModel(liker_id=current_user.id, liked_id=user_id)
-    db.add(new_like)
-    try:
-        await db.commit()
-        await db.refresh(new_like)
-    except Exception as e:
-        await db.rollback()
-        print(f"Ошибка при создании суперлайка (возможно дубликат): {e}")
-        return LikeResponse(liked=True, matched=False, match_user=None)
-
-    # Отправляем суперлайк-уведомление в Telegram
-    liked_user = await db.get(User, user_id)
-    if liked_user and liked_user.telegram_user_id:
-        asyncio.create_task(send_superlike_notification(liked_user.telegram_user_id))
-
-    # Проверяем взаимность
-    mutual = await db.execute(
-        select(func.count(LikeModel.id)).where(
-            LikeModel.liker_id == user_id,
-            LikeModel.liked_id == current_user.id,
-        )
-    )
-    if mutual.scalar_one() > 0:
-        u1, u2 = sorted([current_user.id, user_id])
-        match_check = await db.execute(
-            select(func.count(MatchModel.id)).where(
-                MatchModel.user1_id == u1,
-                MatchModel.user2_id == u2,
-            )
-        )
-        if match_check.scalar_one() == 0:
-            new_match = MatchModel(user1_id=u1, user2_id=u2)
-            db.add(new_match)
-            await db.commit()
-            await db.refresh(new_match)
-
-        matched = await db.get(User, user_id)
-        if not matched:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-        urls = await build_photo_urls(matched.id, db)
-        user_read = UserRead(
-            user_id=matched.id,
-            telegram_user_id=matched.telegram_user_id,
-            first_name=matched.first_name,
-            birthdate=matched.birthdate,
-            gender=matched.gender,
-            about=matched.about,
-            latitude=matched.latitude,
-            longitude=matched.longitude,
-            telegram_username=matched.telegram_username,
-            instagram_username=matched.instagram_username,
-            is_premium=matched.is_premium,
-            premium_expires_at=matched.premium_expires_at,
-            created_at=matched.created_at,
-            photos=urls,
-        )
-        if matched.telegram_user_id:
-            asyncio.create_task(send_match_notification(matched.telegram_user_id))
-        if current_user.telegram_user_id:
-            asyncio.create_task(send_match_notification(current_user.telegram_user_id))
-
-        return LikeResponse(liked=True, matched=True, match_user=user_read)
-
-    # AI Auto-Match для суперлайка тоже
-    if liked_user and getattr(liked_user, 'is_ai', False):
-        asyncio.create_task(ai_auto_match(
-            ai_user_id=user_id,
-            real_user_id=current_user.id,
-            ai_user_telegram_id=liked_user.telegram_user_id if liked_user else None,
-            real_user_telegram_id=current_user.telegram_user_id
-        ))
-
-    return LikeResponse(liked=True, matched=False, match_user=None)
 
 
 @router.post(
