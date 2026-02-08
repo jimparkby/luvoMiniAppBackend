@@ -57,6 +57,7 @@ async def create_or_login_user(
 
     # Валидация instagram_username
     if instagram_username:
+        instagram_username = instagram_username.strip()
         is_valid, error_message = validate_username(instagram_username)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)
@@ -199,6 +200,7 @@ async def update_my_profile(
 
     # Валидация instagram_username при обновлении
     if instagram_username is not None:
+        instagram_username = instagram_username.strip() if instagram_username else ""
         is_valid, error_message = validate_username(instagram_username)
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)

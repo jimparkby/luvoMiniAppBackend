@@ -43,10 +43,17 @@ def validate_username(value: str) -> tuple[bool, str | None]:
     if not value:
         return False, "Username обязателен"
 
-    if not is_valid_username_format(value):
+    # Убираем пробелы в начале и конце
+    trimmed_value = value.strip()
+
+    # Проверяем что после trim не пустая строка
+    if not trimmed_value:
+        return False, "Username обязателен"
+
+    if not is_valid_username_format(trimmed_value):
         return False, "Username может содержать только латинские буквы, цифры, точки и подчёркивания"
 
-    if contains_banned_word(value):
+    if contains_banned_word(trimmed_value):
         return False, "Username содержит запрещённые слова"
 
     return True, None
