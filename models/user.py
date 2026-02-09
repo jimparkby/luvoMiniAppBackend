@@ -14,6 +14,7 @@ class User(Base):
     is_premium = Column(Boolean, default=False, nullable=False)
     premium_expires_at = Column(DateTime(timezone=True), nullable=True)
     is_ai = Column(Boolean, default=False, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
 
     birthdate = Column(Date, nullable=True)
     first_name = Column(String, nullable=True)

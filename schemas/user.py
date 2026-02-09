@@ -78,6 +78,7 @@ class UserRead(UserBase):
     created_at: datetime = Field(..., description="Дата и время создания аккаунта")
     is_liked: Optional[bool] = Field(False, description="Лайкнул ли текущий пользователь эту анкету")
     is_ai: Optional[bool] = Field(False, description="Признак AI-пользователя")
+    is_verified: Optional[bool] = Field(False, description="Верифицирован через Face ID")
 
     class Config:
         from_attributes = True

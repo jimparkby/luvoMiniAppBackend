@@ -67,6 +67,16 @@ async def on_startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
+    # Автомиграция: добавляем новые колонки если их нет
+    from sqlalchemy import text
+    async with engine.begin() as conn:
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        except Exception as e:
+            logger.warning(f"Migration is_verified: {e}")
+
     asyncio.create_task(start_bot())
 
 @app.get("/")

@@ -98,5 +98,6 @@ async def get_feed(
             created_at=user.created_at,
             photos=photos,
             is_liked=user.id in liked_ids,
+            is_verified=getattr(user, 'is_verified', False),
         ))
     return FeedResponse(users=feed, recommended_count=recommended_count)

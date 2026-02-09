@@ -101,4 +101,5 @@ async def _to_user_read(user: User, db: AsyncSession) -> UserRead:
         is_premium=user.is_premium,
         premium_expires_at=user.premium_expires_at,
         created_at=user.created_at,
+        is_verified=getattr(user, 'is_verified', False),
     )

@@ -162,8 +162,8 @@ async def read_my_profile(
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,
+        is_verified=getattr(current_user, 'is_verified', False),
     )
-
 
 
 @router.put(
@@ -293,8 +293,8 @@ async def update_my_profile(
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,
+        is_verified=getattr(current_user, 'is_verified', False),
     )
-
 
 
 @router.get(
@@ -329,6 +329,7 @@ async def read_user_profile(
         photos=photos,
         is_premium=user.is_premium,
         created_at=user.created_at,
+        is_verified=getattr(user, 'is_verified', False),
     )
 
 
@@ -374,4 +375,5 @@ async def update_my_location(
         photos=photos,
         is_premium=current_user.is_premium,
         created_at=current_user.created_at,
+        is_verified=getattr(current_user, 'is_verified', False),
     )

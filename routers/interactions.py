@@ -229,6 +229,7 @@ async def like_user(
             premium_expires_at=matched.premium_expires_at,
             created_at=matched.created_at,
             photos=urls,
+            is_verified=getattr(matched, 'is_verified', False),
         )
         if matched.telegram_user_id:
             asyncio.create_task(send_match_notification(matched.telegram_user_id))
@@ -332,6 +333,7 @@ async def superlike_user(
                     premium_expires_at=matched_user_obj.premium_expires_at,
                     created_at=matched_user_obj.created_at,
                     photos=urls,
+                    is_verified=getattr(matched_user_obj, 'is_verified', False),
                 )
                 if matched_user_obj.telegram_user_id:
                     asyncio.create_task(send_match_notification(matched_user_obj.telegram_user_id))
@@ -439,6 +441,7 @@ async def incoming_likes(
             premium_expires_at=user.premium_expires_at,
             created_at=user.created_at,
             photos=urls,
+            is_verified=getattr(user, 'is_verified', False),
         ))
     return output
 
@@ -534,5 +537,6 @@ async def get_my_matches(
             premium_expires_at=user.premium_expires_at,
             created_at=user.created_at,
             photos=photos,
+            is_verified=getattr(user, 'is_verified', False),
         ))
     return out
