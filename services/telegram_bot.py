@@ -695,6 +695,13 @@ async def send_match_notification(chat_id: int) -> None:
         reply_markup=likes_keyboard,
     )
 
+async def send_superlike_notification(chat_id: int) -> None:
+    await bot.send_message(
+        chat_id,
+        "Вы получили супер лайк! ⭐",
+        reply_markup=likes_keyboard,
+    )
+
 
 async def start_bot() -> None:
     # Устанавливаем Menu Button для открытия WebApp
