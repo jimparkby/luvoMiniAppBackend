@@ -74,6 +74,10 @@ async def on_startup():
             await conn.execute(text(
                 "ALTER TABLE users ADD COLUMN IF NOT EXISTS is_verified BOOLEAN NOT NULL DEFAULT FALSE"
             ))
+            # Одноразово: выставляем всем существующим пользователям галочку
+            await conn.execute(text(
+                "UPDATE users SET is_verified = TRUE WHERE is_verified = FALSE"
+            ))
         except Exception as e:
             logger.warning(f"Migration is_verified: {e}")
 
