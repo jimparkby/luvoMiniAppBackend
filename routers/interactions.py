@@ -343,6 +343,17 @@ async def superlike_user(
     if liked_user and liked_user.telegram_user_id:
         asyncio.create_task(send_superlike_notification(liked_user.telegram_user_id))
 
+    # AI Auto-Match: если суперлайк на AI-анкету, AI автоматически ответит
+    if liked_user and not matched:
+        is_ai = getattr(liked_user, 'is_ai', False)
+        if is_ai:
+            asyncio.create_task(ai_auto_match(
+                ai_user_id=user_id,
+                real_user_id=current_user.id,
+                ai_user_telegram_id=liked_user.telegram_user_id,
+                real_user_telegram_id=current_user.telegram_user_id
+            ))
+
     return LikeResponse(liked=True, matched=matched, match_user=match_user)
 
 
