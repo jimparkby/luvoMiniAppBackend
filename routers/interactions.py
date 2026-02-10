@@ -115,17 +115,66 @@ async def ai_auto_match(
 )
 async def view_profile(
     user_id: int,
+    detailed: bool = False,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     if user_id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя просматривать свой профиль")
     # Записываем просмотр
-    view = FeedView(viewer_id=current_user.id, viewed_id=user_id)
+    view = FeedView(viewer_id=current_user.id, viewed_id=user_id, is_detailed=detailed)
     db.add(view)
     await db.commit()
 
     return
+
+
+@router.get(
+    "/views",
+    response_model=dict,
+    summary="Список пользователей, которые детально просмотрели ваш профиль"
+)
+async def get_profile_views(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # Подзапрос: последний детальный просмотр от каждого юзера
+    subq = (
+        select(
+            FeedView.viewer_id,
+            func.max(FeedView.created_at).label("last_viewed_at")
+        )
+        .where(
+            FeedView.viewed_id == current_user.id,
+            FeedView.is_detailed.is_(True),
+        )
+        .group_by(FeedView.viewer_id)
+        .subquery()
+    )
+
+    result = await db.execute(
+        select(subq.c.viewer_id, subq.c.last_viewed_at)
+        .order_by(desc(subq.c.last_viewed_at))
+        .limit(50)
+    )
+    rows = result.all()
+
+    viewers = []
+    for viewer_id, last_viewed_at in rows:
+        user = await db.get(User, viewer_id)
+        if not user or not user.first_name:
+            continue
+        urls = await build_photo_urls(viewer_id, db)
+        viewers.append({
+            "user_id": user.id,
+            "first_name": user.first_name,
+            "birthdate": user.birthdate.isoformat() if user.birthdate else None,
+            "photos": urls,
+            "viewed_at": last_viewed_at.isoformat(),
+            "is_verified": getattr(user, 'is_verified', False),
+        })
+
+    return {"viewers": viewers, "total_count": len(viewers)}
 
 
 @router.post(

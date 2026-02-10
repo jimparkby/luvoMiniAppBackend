@@ -81,6 +81,13 @@ async def on_startup():
         except Exception as e:
             logger.warning(f"Migration is_verified: {e}")
 
+        try:
+            await conn.execute(text(
+                "ALTER TABLE feed_views ADD COLUMN IF NOT EXISTS is_detailed BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+        except Exception as e:
+            logger.warning(f"Migration is_detailed: {e}")
+
     asyncio.create_task(start_bot())
 
 @app.get("/")
