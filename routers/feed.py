@@ -85,15 +85,22 @@ async def get_feed(
         .where(*base_filters)
     )
 
-    # Сортировка: суперлайкнутые первыми, затем по возрасту
+    # Приоритет премиум-анкет (активная подписка)
+    now_utc = datetime.now(timezone.utc)
+    premium_priority = case(
+        (and_(User.is_premium.is_(True), User.premium_expires_at > now_utc), 0),
+        else_=1
+    )
+
+    # Сортировка: суперлайкнутые → премиум → по возрасту
     if current_user.birthdate:
         age_priority = case(
             (and_(User.birthdate >= min_birthdate, User.birthdate <= max_birthdate), 0),
             else_=1
         )
-        stmt = stmt.order_by(desc("sl_count"), age_priority, User.created_at.desc())
+        stmt = stmt.order_by(desc("sl_count"), premium_priority, age_priority, User.created_at.desc())
     else:
-        stmt = stmt.order_by(desc("sl_count"), User.created_at.desc())
+        stmt = stmt.order_by(desc("sl_count"), premium_priority, User.created_at.desc())
 
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
