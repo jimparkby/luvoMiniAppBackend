@@ -330,6 +330,7 @@ async def read_user_profile(
         is_premium=user.is_premium,
         created_at=user.created_at,
         is_verified=getattr(user, 'is_verified', False),
+        is_ai=getattr(user, 'is_ai', False),
     )
 
 
