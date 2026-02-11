@@ -2,6 +2,8 @@ from typing import List, Optional
 import asyncio
 import random
 
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, or_
@@ -312,6 +314,42 @@ async def like_user(
 
 
 
+SUPERLIKE_LIMIT_FREE = 3
+SUPERLIKE_LIMIT_PREMIUM = 20
+
+
+async def _get_superlike_info(user: User, db: AsyncSession) -> dict:
+    """Возвращает used, limit, remaining, is_premium для суперлайков за последние 7 дней."""
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    result = await db.execute(
+        select(func.count(LikeModel.id)).where(
+            LikeModel.liker_id == user.id,
+            LikeModel.is_superlike.is_(True),
+            LikeModel.created_at >= week_ago,
+        )
+    )
+    used = result.scalar_one()
+
+    is_premium = bool(
+        user.is_premium and user.premium_expires_at and user.premium_expires_at > datetime.now(timezone.utc)
+    )
+    limit = SUPERLIKE_LIMIT_PREMIUM if is_premium else SUPERLIKE_LIMIT_FREE
+    remaining = max(0, limit - used)
+
+    return {"used": used, "limit": limit, "remaining": remaining, "is_premium": is_premium}
+
+
+@router.get(
+    "/superlike-status",
+    summary="Остаток суперлайков за неделю",
+)
+async def superlike_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    return await _get_superlike_info(current_user, db)
+
+
 @router.post(
     "/superlike/{user_id}",
     response_model=LikeResponse,
@@ -325,6 +363,15 @@ async def superlike_user(
     if user_id == current_user.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Нельзя суперлайкать себя")
 
+    # Проверяем лимит суперлайков
+    sl_info = await _get_superlike_info(current_user, db)
+    if sl_info["remaining"] <= 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Лимит суперлайков",
+            headers={"Retry-After": "3600"},
+        )
+
     # Ставим обычный лайк, если ещё не стоит
     res = await db.execute(
         select(LikeModel).where(
@@ -336,8 +383,13 @@ async def superlike_user(
     matched = False
     match_user = None
 
-    if not existing:
-        new_like = LikeModel(liker_id=current_user.id, liked_id=user_id)
+    if existing:
+        # Обновляем существующий лайк — помечаем как суперлайк
+        existing.is_superlike = True
+        db.add(existing)
+        await db.commit()
+    else:
+        new_like = LikeModel(liker_id=current_user.id, liked_id=user_id, is_superlike=True)
         db.add(new_like)
         try:
             await db.commit()
@@ -406,7 +458,9 @@ async def superlike_user(
                 real_user_telegram_id=current_user.telegram_user_id
             ))
 
-    return LikeResponse(liked=True, matched=matched, match_user=match_user)
+    # Пересчитываем остаток после суперлайка
+    sl_after = await _get_superlike_info(current_user, db)
+    return LikeResponse(liked=True, matched=matched, match_user=match_user, superlike_remaining=sl_after["remaining"])
 
 
 @router.post(

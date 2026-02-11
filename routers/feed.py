@@ -1,9 +1,10 @@
 from typing import List
+from datetime import datetime, timedelta, timezone
+
 from dateutil.relativedelta import relativedelta
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select, not_, and_, case, func
+from sqlalchemy import select, not_, and_, case, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
-
 from core.database import get_db
 from core.security import get_current_user
 from models.user import User
@@ -63,24 +64,43 @@ async def get_feed(
     )
     liked_ids = set(row[0] for row in liked_ids_result.all())
 
-    stmt = select(User).where(*base_filters)
+    # Подзапрос: количество суперлайков на анкету за последние 7 дней (буст)
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+    superlike_sub = (
+        select(
+            LikeModel.liked_id,
+            func.count(LikeModel.id).label("superlike_count"),
+        )
+        .where(
+            LikeModel.is_superlike.is_(True),
+            LikeModel.created_at >= week_ago,
+        )
+        .group_by(LikeModel.liked_id)
+        .subquery()
+    )
 
-    # Сортировка по возрасту: сначала ±5 лет, потом остальные
+    stmt = (
+        select(User, func.coalesce(superlike_sub.c.superlike_count, 0).label("sl_count"))
+        .outerjoin(superlike_sub, User.id == superlike_sub.c.liked_id)
+        .where(*base_filters)
+    )
+
+    # Сортировка: суперлайкнутые первыми, затем по возрасту
     if current_user.birthdate:
         age_priority = case(
             (and_(User.birthdate >= min_birthdate, User.birthdate <= max_birthdate), 0),
             else_=1
         )
-        stmt = stmt.order_by(age_priority, User.created_at.desc())
+        stmt = stmt.order_by(desc("sl_count"), age_priority, User.created_at.desc())
     else:
-        stmt = stmt.order_by(User.created_at.desc())
+        stmt = stmt.order_by(desc("sl_count"), User.created_at.desc())
 
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
-    users = result.scalars().all()
+    rows = result.all()
 
     feed: List[UserRead] = []
-    for user in users:
+    for user, _sl_count in rows:
         photos = await build_photo_urls(user.id, db)
         feed.append(UserRead(
             user_id=user.id,

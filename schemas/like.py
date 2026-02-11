@@ -7,6 +7,7 @@ class LikeResponse(BaseModel):
     liked: bool
     matched: bool
     match_user: Optional[UserRead] = None
+    superlike_remaining: Optional[int] = None
 
     class Config:
         from_attributes = True

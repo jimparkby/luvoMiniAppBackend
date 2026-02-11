@@ -17,6 +17,9 @@ class Like(Base):
     # Добавляем новое поле is_ignored
     is_ignored = Column(Boolean, default=False, nullable=False)
 
+    # Суперлайк
+    is_superlike = Column(Boolean, default=False, nullable=False)
+
     liker = relationship("User", foreign_keys=[liker_id], backref="likes_given")
     liked = relationship("User", foreign_keys=[liked_id], backref="likes_received")
 
