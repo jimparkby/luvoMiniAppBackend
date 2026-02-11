@@ -172,6 +172,7 @@ async def get_profile_views(
             "photos": urls,
             "viewed_at": last_viewed_at.isoformat(),
             "is_verified": getattr(user, 'is_verified', False),
+            "telegram_username": user.telegram_username,
         })
 
     return {"viewers": viewers, "total_count": len(viewers)}
