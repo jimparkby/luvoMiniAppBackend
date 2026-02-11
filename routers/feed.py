@@ -92,15 +92,15 @@ async def get_feed(
         else_=1
     )
 
-    # Сортировка: суперлайкнутые → премиум → по возрасту
+    # Сортировка: премиум → суперлайкнутые → по возрасту
     if current_user.birthdate:
         age_priority = case(
             (and_(User.birthdate >= min_birthdate, User.birthdate <= max_birthdate), 0),
             else_=1
         )
-        stmt = stmt.order_by(desc("sl_count"), premium_priority, age_priority, User.created_at.desc())
+        stmt = stmt.order_by(premium_priority, desc("sl_count"), age_priority, User.created_at.desc())
     else:
-        stmt = stmt.order_by(desc("sl_count"), premium_priority, User.created_at.desc())
+        stmt = stmt.order_by(premium_priority, desc("sl_count"), User.created_at.desc())
 
     stmt = stmt.offset(offset).limit(limit)
     result = await db.execute(stmt)
