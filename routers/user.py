@@ -205,15 +205,12 @@ async def update_my_profile(
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)
 
-    # Валидация статуса
+    # Валидация статуса (эмодзи или пустая строка)
     if status is not None:
-        valid_statuses = ['walking', 'evening', 'fashion', 'sport', 'chill', 'party', '']
-        if status and status not in valid_statuses:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
-            )
-        current_user.status = status
+        status = status.strip()
+        if len(status) > 10:
+            raise HTTPException(status_code=400, detail="Status too long")
+        current_user.status = status or None
 
     if first_name is not None:
         current_user.first_name = first_name
