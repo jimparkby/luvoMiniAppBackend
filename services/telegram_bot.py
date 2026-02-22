@@ -681,6 +681,72 @@ async def cmd_rule(message: types.Message) -> None:
     await message.answer(COMMUNITY_RULES_TEXT, parse_mode="HTML")
 
 
+@dp.message(Command("setpremium"))
+async def cmd_set_premium(message: types.Message) -> None:
+    if message.chat.id != settings.ADMIN_REVIEW_CHAT_ID:
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("Использование: /setpremium <telegram_user_id>")
+        return
+
+    try:
+        target_tg_id = int(args[1])
+    except ValueError:
+        await message.answer("telegram_user_id должен быть числом")
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == target_tg_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await message.answer(f"Пользователь с telegram_id {target_tg_id} не найден")
+            return
+        user.is_premium = True
+        await session.commit()
+
+    await message.answer(
+        f"✅ Premium выдан пользователю <b>{target_tg_id}</b>",
+        parse_mode="HTML",
+    )
+
+
+@dp.message(Command("removepremium"))
+async def cmd_remove_premium(message: types.Message) -> None:
+    if message.chat.id != settings.ADMIN_REVIEW_CHAT_ID:
+        return
+
+    args = (message.text or "").split()
+    if len(args) < 2:
+        await message.answer("Использование: /removepremium <telegram_user_id>")
+        return
+
+    try:
+        target_tg_id = int(args[1])
+    except ValueError:
+        await message.answer("telegram_user_id должен быть числом")
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == target_tg_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await message.answer(f"Пользователь с telegram_id {target_tg_id} не найден")
+            return
+        user.is_premium = False
+        await session.commit()
+
+    await message.answer(
+        f"❌ Premium снят с пользователя <b>{target_tg_id}</b>",
+        parse_mode="HTML",
+    )
+
+
 async def send_like_notification(chat_id: int) -> None:
     await bot.send_message(
         chat_id,
