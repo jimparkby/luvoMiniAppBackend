@@ -205,10 +205,10 @@ async def update_my_profile(
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)
 
-    # Валидация статуса (эмодзи или пустая строка)
+    # Валидация статуса (эмодзи, tg-emoji ID или пустая строка)
     if status is not None:
         status = status.strip()
-        if len(status) > 10:
+        if len(status) > 32:
             raise HTTPException(status_code=400, detail="Status too long")
         current_user.status = status or None
 
