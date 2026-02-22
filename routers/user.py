@@ -205,9 +205,15 @@ async def update_my_profile(
         if not is_valid:
             raise HTTPException(status_code=400, detail=error_message)
 
-    # Статус смайлик: принимаем любую строку до 100 символов
+    # Валидация статуса
     if status is not None:
-        current_user.status = status[:100]
+        valid_statuses = ['walking', 'evening', 'fashion', 'sport', 'chill', 'party', '']
+        if status and status not in valid_statuses:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status. Must be one of: {', '.join(valid_statuses)}"
+            )
+        current_user.status = status
 
     if first_name is not None:
         current_user.first_name = first_name
