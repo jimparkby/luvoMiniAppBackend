@@ -747,6 +747,20 @@ async def cmd_remove_premium(message: types.Message) -> None:
     )
 
 
+@dp.message(F.text)
+async def handle_emoji_id_extractor(message: types.Message) -> None:
+    if not message.entities:
+        return
+    ids = [
+        e.custom_emoji_id
+        for e in message.entities
+        if e.type == "custom_emoji" and e.custom_emoji_id
+    ]
+    if ids:
+        ids_text = "\n".join(ids)
+        await message.reply(f"Custom emoji ID:\n<code>{ids_text}</code>", parse_mode="HTML")
+
+
 async def send_like_notification(chat_id: int) -> None:
     await bot.send_message(
         chat_id,
