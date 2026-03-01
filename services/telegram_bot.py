@@ -668,7 +668,7 @@ async def cmd_start(message: types.Message) -> None:
         "мы помогаем найти новые знакомства по твоим подпискам в Instagram. "
         "Чтобы начать знакомиться, запусти приложение! 💫"
     )
-    await message.answer(text, reply_markup=start_keyboard)
+    await message.answer(text, reply_markup=start_keyboard, message_effect_id="5046509860389126442")
 
 
 @dp.callback_query(F.data == "subscription")
@@ -766,6 +766,7 @@ async def send_like_notification(chat_id: int) -> None:
         chat_id,
         "Кому-то понравился твой профиль ❤️ Узнай, кто это",
         reply_markup=likes_keyboard,
+        message_effect_id="5159385139981059251",
     )
 
 async def send_match_notification(chat_id: int) -> None:
@@ -773,6 +774,7 @@ async def send_match_notification(chat_id: int) -> None:
         chat_id,
         "Совпадение! 🔥 У вас взаимный интерес — начни общение",
         reply_markup=likes_keyboard,
+        message_effect_id="5104841245755180586",
     )
 
 async def send_superlike_notification(chat_id: int) -> None:
@@ -780,6 +782,7 @@ async def send_superlike_notification(chat_id: int) -> None:
         chat_id,
         "Вы получили супер лайк! ⭐",
         reply_markup=likes_keyboard,
+        message_effect_id="5104841245755180586",
     )
 
 
