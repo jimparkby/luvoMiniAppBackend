@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     RESET_DB_ON_STARTUP: bool = False
     DEBUG: bool = False
 
+    # Comma-separated list of telegram user IDs who can access admin panel
+    ADMIN_IDS: Optional[str] = None
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

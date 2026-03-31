@@ -2,12 +2,14 @@ import asyncio
 import html
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.exceptions import TelegramAPIError
-from aiogram.filters import Command, CommandStart
+from aiogram.filters import Command, CommandStart, StateFilter
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup, default_state
 from aiogram.types import (
     BufferedInputFile,
     InlineKeyboardButton,
@@ -15,7 +17,7 @@ from aiogram.types import (
     WebAppInfo,
 )
 from aiohttp import ClientError, ClientSession
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, func as sa_func, or_, select
 
 from core.config import settings
 from core.database import AsyncSessionLocal
@@ -74,6 +76,117 @@ def _forget_review_caption(message: types.Message) -> None:
     _review_message_bases.pop(key, None)
 
 
+# ---------------------------------------------------------------------------
+# Admin helpers
+# ---------------------------------------------------------------------------
+
+class AdminPremiumStates(StatesGroup):
+    waiting_for_user_id_give = State()
+    waiting_for_user_id_remove = State()
+
+
+def _get_admin_ids() -> list[int]:
+    if not settings.ADMIN_IDS:
+        return []
+    try:
+        return [int(x.strip()) for x in settings.ADMIN_IDS.split(",") if x.strip()]
+    except ValueError:
+        return []
+
+
+def _is_admin(user: types.User, chat_id: int) -> bool:
+    return user.id in _get_admin_ids() or chat_id == settings.ADMIN_REVIEW_CHAT_ID
+
+
+def _admin_panel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Выдать подписку",
+                    callback_data="admin_give_premium",
+                    icon_custom_emoji_id="6032644646587338669",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Снять подписку",
+                    callback_data="admin_remove_premium",
+                    icon_custom_emoji_id="5893192487324880883",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="Статистика",
+                    callback_data="admin_stats",
+                    icon_custom_emoji_id="5870921681735781843",
+                )
+            ],
+        ]
+    )
+
+
+def _duration_keyboard(tg_id: int) -> InlineKeyboardMarkup:
+    durations = [
+        ("7 дней",    7,   "5983150113483134607"),
+        ("1 месяц",   30,  "5890937706803894250"),
+        ("3 месяца",  90,  "5890937706803894250"),
+        ("6 месяцев", 180, "5886285355279193209"),
+        ("1 год",     365, "5886285355279193209"),
+        ("Навсегда",  0,   "6032644646587338669"),
+    ]
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=label,
+                callback_data=f"prem_dur:{tg_id}:{days}",
+                icon_custom_emoji_id=emoji_id,
+            )
+        ]
+        for label, days, emoji_id in durations
+    ]
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="Отмена",
+                callback_data="admin_panel",
+                icon_custom_emoji_id="5870657884844462243",
+            )
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Отмена",
+                    callback_data="admin_panel",
+                    icon_custom_emoji_id="5870657884844462243",
+                )
+            ]
+        ]
+    )
+
+
+def _back_to_admin_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="Назад",
+                    callback_data="admin_panel",
+                    icon_custom_emoji_id="5870657884844462243",
+                )
+            ]
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+
 def build_keyboard(url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -98,12 +211,14 @@ start_keyboard = InlineKeyboardMarkup(
         ],
         [
             InlineKeyboardButton(
-                text="💎 Подписка", callback_data="subscription"
+                text="Подписка",
+                callback_data="subscription",
+                icon_custom_emoji_id="6032644646587338669",
             )
         ],
         [
             InlineKeyboardButton(
-                text="📄 Политика конфиденциальности", url=PRIVACY_POLICY_LINK
+                text="Политика конфиденциальности", url=PRIVACY_POLICY_LINK
             )
         ],
     ]
@@ -664,16 +779,88 @@ async def handle_registration_decline(callback: types.CallbackQuery) -> None:
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message) -> None:
     text = (
-        "Привет! 👋 Добро пожаловать в приложение для знакомств Luvo — "
-        "мы помогаем найти новые знакомства по твоим подпискам в Instagram. "
-        "Чтобы начать знакомиться, запусти приложение! 💫"
+        '<tg-emoji emoji-id="6041731551845159060">🎉</tg-emoji> Привет! '
+        'Добро пожаловать в приложение для знакомств <b>Luvo</b> — '
+        'мы помогаем найти новые знакомства. '
+        'Чтобы начать знакомиться, запусти приложение!'
     )
-    await message.answer(text, reply_markup=start_keyboard, message_effect_id="5046509860389126442")
+    await message.answer(
+        text,
+        parse_mode="HTML",
+        reply_markup=start_keyboard,
+        message_effect_id="5046509860389126442",
+    )
 
 
 @dp.callback_query(F.data == "subscription")
 async def cb_subscription(callback: types.CallbackQuery) -> None:
-    await callback.answer("Раздел подписки скоро будет доступен!", show_alert=True)
+    tg_id = callback.from_user.id
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == tg_id)
+        )
+        user = result.scalar_one_or_none()
+
+    if not user:
+        await callback.answer("Аккаунт не найден", show_alert=True)
+        return
+
+    if user.is_premium:
+        if user.premium_expires_at:
+            expires_str = user.premium_expires_at.strftime("%d.%m.%Y")
+            status_text = (
+                f'<tg-emoji emoji-id="5870633910337015697">✅</tg-emoji> '
+                f'<b>Premium активен</b>\n'
+                f'<tg-emoji emoji-id="5890937706803894250">📅</tg-emoji> До: {expires_str}'
+            )
+        else:
+            status_text = (
+                f'<tg-emoji emoji-id="5870633910337015697">✅</tg-emoji> '
+                f'<b>Premium активен</b>\n'
+                f'<tg-emoji emoji-id="6032644646587338669">🎁</tg-emoji> Срок: навсегда'
+            )
+    else:
+        status_text = (
+            f'<tg-emoji emoji-id="6037249452824072506">🔒</tg-emoji> '
+            f'<b>Подписка не активна</b>'
+        )
+
+    await callback.message.edit_text(
+        f'<b><tg-emoji emoji-id="6032644646587338669">🎁</tg-emoji> Luvo Premium</b>\n\n'
+        f'{status_text}\n\n'
+        f'<b>Преимущества Premium:</b>\n'
+        f'• Больше суперлайков — 20 в неделю\n'
+        f'• Приоритет в ленте\n'
+        f'• Эксклюзивные функции\n\n'
+        f'Для получения подписки обратитесь к администратору.',
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="Назад",
+                        callback_data="back_to_start",
+                        icon_custom_emoji_id="5870657884844462243",
+                    )
+                ]
+            ]
+        ),
+    )
+    await callback.answer()
+
+
+@dp.callback_query(F.data == "back_to_start")
+async def cb_back_to_start(callback: types.CallbackQuery) -> None:
+    text = (
+        '<tg-emoji emoji-id="6041731551845159060">🎉</tg-emoji> Привет! '
+        'Добро пожаловать в приложение для знакомств <b>Luvo</b> — '
+        'мы помогаем найти новые знакомства. '
+        'Чтобы начать знакомиться, запусти приложение!'
+    )
+    await callback.message.edit_text(
+        text, parse_mode="HTML", reply_markup=start_keyboard
+    )
+    await callback.answer()
 
 
 @dp.message(Command("rule"))
@@ -709,7 +896,7 @@ async def cmd_set_premium(message: types.Message) -> None:
         await session.commit()
 
     await message.answer(
-        f"✅ Premium выдан пользователю <b>{target_tg_id}</b>",
+        f'<tg-emoji emoji-id="5870633910337015697">✅</tg-emoji> Premium выдан пользователю <b>{target_tg_id}</b>',
         parse_mode="HTML",
     )
 
@@ -742,12 +929,12 @@ async def cmd_remove_premium(message: types.Message) -> None:
         await session.commit()
 
     await message.answer(
-        f"❌ Premium снят с пользователя <b>{target_tg_id}</b>",
+        f'<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> Premium снят с пользователя <b>{target_tg_id}</b>',
         parse_mode="HTML",
     )
 
 
-@dp.message(F.text)
+@dp.message(F.text, StateFilter(default_state))
 async def handle_emoji_id_extractor(message: types.Message) -> None:
     if not message.entities:
         return
@@ -760,6 +947,284 @@ async def handle_emoji_id_extractor(message: types.Message) -> None:
         ids_text = "\n".join(ids)
         await message.reply(f"Custom emoji ID:\n<code>{ids_text}</code>", parse_mode="HTML")
 
+
+# ===========================================================================
+# ADMIN PANEL
+# ===========================================================================
+
+@dp.message(Command("admin"))
+async def cmd_admin(message: types.Message) -> None:
+    if not _is_admin(message.from_user, message.chat.id):
+        return
+    await message.answer(
+        '<b><tg-emoji emoji-id="5870982283724328568">⚙️</tg-emoji> Панель администратора</b>',
+        parse_mode="HTML",
+        reply_markup=_admin_panel_keyboard(),
+    )
+
+
+@dp.callback_query(F.data == "admin_panel")
+async def cb_admin_panel(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(callback.from_user, callback.message.chat.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.clear()
+    await callback.message.edit_text(
+        '<b><tg-emoji emoji-id="5870982283724328568">⚙️</tg-emoji> Панель администратора</b>',
+        parse_mode="HTML",
+        reply_markup=_admin_panel_keyboard(),
+    )
+    await callback.answer()
+
+
+# ---------------------------------------------------------------------------
+# Give premium
+# ---------------------------------------------------------------------------
+
+@dp.callback_query(F.data == "admin_give_premium")
+async def cb_give_premium(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(callback.from_user, callback.message.chat.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.set_state(AdminPremiumStates.waiting_for_user_id_give)
+    await callback.message.edit_text(
+        '<b><tg-emoji emoji-id="6032644646587338669">🎁</tg-emoji> Выдать подписку</b>\n\n'
+        'Введите <b>Telegram ID</b> пользователя:',
+        parse_mode="HTML",
+        reply_markup=_cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.message(AdminPremiumStates.waiting_for_user_id_give)
+async def handle_user_id_for_give(message: types.Message, state: FSMContext) -> None:
+    if not _is_admin(message.from_user, message.chat.id):
+        return
+    try:
+        tg_id = int((message.text or "").strip())
+    except ValueError:
+        await message.answer(
+            '<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> '
+            'Некорректный ID. Введите число:',
+            parse_mode="HTML",
+            reply_markup=_cancel_keyboard(),
+        )
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == tg_id)
+        )
+        user = result.scalar_one_or_none()
+
+    if not user:
+        await message.answer(
+            f'<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> '
+            f'Пользователь с ID <b>{tg_id}</b> не найден.',
+            parse_mode="HTML",
+            reply_markup=_cancel_keyboard(),
+        )
+        return
+
+    await state.clear()
+    name = html.escape(user.first_name or f"id{tg_id}")
+    await message.answer(
+        f'<tg-emoji emoji-id="5891207662678317861">👤</tg-emoji> '
+        f'<b>{name}</b> (<code>{tg_id}</code>)\n\n'
+        f'<tg-emoji emoji-id="5890937706803894250">📅</tg-emoji> '
+        f'Выберите срок подписки:',
+        parse_mode="HTML",
+        reply_markup=_duration_keyboard(tg_id),
+    )
+
+
+@dp.callback_query(F.data.startswith("prem_dur:"))
+async def cb_prem_duration(callback: types.CallbackQuery) -> None:
+    if not _is_admin(callback.from_user, callback.message.chat.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    try:
+        _, tg_id_str, days_str = callback.data.split(":")
+        tg_id = int(tg_id_str)
+        days = int(days_str)
+    except (ValueError, AttributeError):
+        await callback.answer("Некорректные данные", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == tg_id)
+        )
+        user = result.scalar_one_or_none()
+        if not user:
+            await callback.answer("Пользователь не найден", show_alert=True)
+            return
+
+        user.is_premium = True
+        if days == 0:
+            user.premium_expires_at = None
+            duration_text = "навсегда"
+        else:
+            expires = datetime.now(tz=timezone.utc) + timedelta(days=days)
+            user.premium_expires_at = expires
+            duration_text = f"на {days} дн. (до {expires.strftime('%d.%m.%Y')})"
+
+        name = html.escape(user.first_name or f"id{tg_id}")
+        await session.commit()
+
+    await _send_user_notification(
+        tg_id,
+        f'<tg-emoji emoji-id="6032644646587338669">🎁</tg-emoji> <b>Поздравляем!</b>\n\n'
+        f'Вам выдана <b>Premium подписка</b> {duration_text}. '
+        f'Наслаждайтесь расширенными возможностями Luvo!',
+    )
+
+    await callback.message.edit_text(
+        f'<tg-emoji emoji-id="5870633910337015697">✅</tg-emoji> <b>Premium выдан!</b>\n\n'
+        f'<tg-emoji emoji-id="5891207662678317861">👤</tg-emoji> '
+        f'<b>{name}</b> (<code>{tg_id}</code>)\n'
+        f'<tg-emoji emoji-id="5890937706803894250">📅</tg-emoji> '
+        f'Срок: {duration_text}',
+        parse_mode="HTML",
+        reply_markup=_back_to_admin_keyboard(),
+    )
+    await callback.answer("Premium выдан!")
+
+
+# ---------------------------------------------------------------------------
+# Remove premium
+# ---------------------------------------------------------------------------
+
+@dp.callback_query(F.data == "admin_remove_premium")
+async def cb_remove_premium(callback: types.CallbackQuery, state: FSMContext) -> None:
+    if not _is_admin(callback.from_user, callback.message.chat.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.set_state(AdminPremiumStates.waiting_for_user_id_remove)
+    await callback.message.edit_text(
+        '<b><tg-emoji emoji-id="5893192487324880883">👤</tg-emoji> Снять подписку</b>\n\n'
+        'Введите <b>Telegram ID</b> пользователя:',
+        parse_mode="HTML",
+        reply_markup=_cancel_keyboard(),
+    )
+    await callback.answer()
+
+
+@dp.message(AdminPremiumStates.waiting_for_user_id_remove)
+async def handle_user_id_for_remove(message: types.Message, state: FSMContext) -> None:
+    if not _is_admin(message.from_user, message.chat.id):
+        return
+    try:
+        tg_id = int((message.text or "").strip())
+    except ValueError:
+        await message.answer(
+            '<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> '
+            'Некорректный ID. Введите число:',
+            parse_mode="HTML",
+            reply_markup=_cancel_keyboard(),
+        )
+        return
+
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(User).where(User.telegram_user_id == tg_id)
+        )
+        user = result.scalar_one_or_none()
+
+        if not user:
+            await message.answer(
+                f'<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> '
+                f'Пользователь с ID <b>{tg_id}</b> не найден.',
+                parse_mode="HTML",
+                reply_markup=_cancel_keyboard(),
+            )
+            return
+
+        if not user.is_premium:
+            await message.answer(
+                '<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> '
+                'У пользователя нет активной подписки.',
+                parse_mode="HTML",
+                reply_markup=_cancel_keyboard(),
+            )
+            return
+
+        name = html.escape(user.first_name or f"id{tg_id}")
+        user.is_premium = False
+        user.premium_expires_at = None
+        await session.commit()
+
+    await state.clear()
+
+    await _send_user_notification(
+        tg_id,
+        f'<tg-emoji emoji-id="6037249452824072506">🔒</tg-emoji> <b>Подписка завершена</b>\n\n'
+        f'Ваша Premium подписка была деактивирована.',
+    )
+
+    await message.answer(
+        f'<tg-emoji emoji-id="5870633910337015697">✅</tg-emoji> <b>Premium снят!</b>\n\n'
+        f'<tg-emoji emoji-id="5893192487324880883">👤</tg-emoji> '
+        f'<b>{name}</b> (<code>{tg_id}</code>)',
+        parse_mode="HTML",
+        reply_markup=_back_to_admin_keyboard(),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Stats
+# ---------------------------------------------------------------------------
+
+@dp.callback_query(F.data == "admin_stats")
+async def cb_admin_stats(callback: types.CallbackQuery) -> None:
+    if not _is_admin(callback.from_user, callback.message.chat.id):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    async with AsyncSessionLocal() as session:
+        total_users: int = (
+            await session.execute(select(sa_func.count(User.id)))
+        ).scalar()
+
+        premium_users: int = (
+            await session.execute(
+                select(sa_func.count(User.id)).where(User.is_premium == True)  # noqa: E712
+            )
+        ).scalar()
+
+        today = datetime.now(tz=timezone.utc).date()
+        today_users: int = (
+            await session.execute(
+                select(sa_func.count(User.id)).where(
+                    sa_func.date(User.created_at) == today
+                )
+            )
+        ).scalar()
+
+        week_ago = datetime.now(tz=timezone.utc) - timedelta(days=7)
+        week_users: int = (
+            await session.execute(
+                select(sa_func.count(User.id)).where(User.created_at >= week_ago)
+            )
+        ).scalar()
+
+    await callback.message.edit_text(
+        f'<b><tg-emoji emoji-id="5870921681735781843">📊</tg-emoji> Статистика</b>\n\n'
+        f'<tg-emoji emoji-id="5870772616305839506">👥</tg-emoji> '
+        f'<b>Всего пользователей:</b> {total_users}\n'
+        f'<tg-emoji emoji-id="6032644646587338669">🎁</tg-emoji> '
+        f'<b>Premium:</b> {premium_users}\n'
+        f'<tg-emoji emoji-id="5890937706803894250">📅</tg-emoji> '
+        f'<b>Новых сегодня:</b> {today_users}\n'
+        f'<tg-emoji emoji-id="5983150113483134607">⏰</tg-emoji> '
+        f'<b>За 7 дней:</b> {week_users}',
+        parse_mode="HTML",
+        reply_markup=_back_to_admin_keyboard(),
+    )
+    await callback.answer()
+
+
+# ===========================================================================
 
 async def send_like_notification(chat_id: int) -> None:
     await bot.send_message(
