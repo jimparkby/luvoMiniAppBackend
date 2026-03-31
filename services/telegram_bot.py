@@ -86,16 +86,26 @@ class AdminPremiumStates(StatesGroup):
 
 
 def _get_admin_ids() -> list[int]:
-    if not settings.ADMIN_IDS:
+    raw = settings.ADMIN_IDS
+    if not raw:
         return []
-    try:
-        return [int(x.strip()) for x in settings.ADMIN_IDS.split(",") if x.strip()]
-    except ValueError:
-        return []
+    # strip surrounding quotes that some platforms add
+    raw = raw.strip().strip('"').strip("'")
+    result = []
+    for x in raw.split(","):
+        x = x.strip().strip('"').strip("'")
+        if x:
+            try:
+                result.append(int(x))
+            except ValueError:
+                logger.warning("ADMIN_IDS: cannot parse %r as int", x)
+    return result
 
 
 def _is_admin(user: types.User, chat_id: int = 0) -> bool:
-    return user.id in _get_admin_ids()
+    ids = _get_admin_ids()
+    logger.info("_is_admin check: user_id=%s, admin_ids=%s", user.id, ids)
+    return user.id in ids
 
 
 def _admin_panel_keyboard() -> InlineKeyboardMarkup:
@@ -952,9 +962,24 @@ async def handle_emoji_id_extractor(message: types.Message) -> None:
 # ADMIN PANEL
 # ===========================================================================
 
+@dp.message(Command("myid"))
+async def cmd_myid(message: types.Message) -> None:
+    await message.answer(
+        f'Ваш Telegram ID: <code>{message.from_user.id}</code>\n'
+        f'ADMIN_IDS в настройках: <code>{settings.ADMIN_IDS!r}</code>\n'
+        f'Parsed: <code>{_get_admin_ids()}</code>',
+        parse_mode="HTML",
+    )
+
+
 @dp.message(Command("admin"))
 async def cmd_admin(message: types.Message) -> None:
-    if not _is_admin(message.from_user, message.chat.id):
+    if not _is_admin(message.from_user):
+        await message.answer(
+            f'<tg-emoji emoji-id="5870657884844462243">❌</tg-emoji> Нет доступа.\n'
+            f'Ваш ID: <code>{message.from_user.id}</code>',
+            parse_mode="HTML",
+        )
         return
     await message.answer(
         '<b><tg-emoji emoji-id="5870982283724328568">⚙️</tg-emoji> Панель администратора</b>',
