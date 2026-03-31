@@ -94,8 +94,8 @@ def _get_admin_ids() -> list[int]:
         return []
 
 
-def _is_admin(user: types.User, chat_id: int) -> bool:
-    return user.id in _get_admin_ids() or chat_id == settings.ADMIN_REVIEW_CHAT_ID
+def _is_admin(user: types.User, chat_id: int = 0) -> bool:
+    return user.id in _get_admin_ids()
 
 
 def _admin_panel_keyboard() -> InlineKeyboardMarkup:
@@ -870,7 +870,7 @@ async def cmd_rule(message: types.Message) -> None:
 
 @dp.message(Command("setpremium"))
 async def cmd_set_premium(message: types.Message) -> None:
-    if message.chat.id != settings.ADMIN_REVIEW_CHAT_ID:
+    if not _is_admin(message.from_user):
         return
 
     args = (message.text or "").split()
@@ -903,7 +903,7 @@ async def cmd_set_premium(message: types.Message) -> None:
 
 @dp.message(Command("removepremium"))
 async def cmd_remove_premium(message: types.Message) -> None:
-    if message.chat.id != settings.ADMIN_REVIEW_CHAT_ID:
+    if not _is_admin(message.from_user):
         return
 
     args = (message.text or "").split()
