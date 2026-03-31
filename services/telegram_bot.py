@@ -944,7 +944,12 @@ async def cmd_remove_premium(message: types.Message) -> None:
     )
 
 
-@dp.message(F.text, StateFilter(default_state))
+@dp.message(
+    F.entities.func(
+        lambda e: e is not None and any(ent.type == "custom_emoji" for ent in e)
+    ),
+    StateFilter(default_state),
+)
 async def handle_emoji_id_extractor(message: types.Message) -> None:
     if not message.entities:
         return
